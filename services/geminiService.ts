@@ -7,20 +7,32 @@ import type { GenerateContentResponse } from "@google/genai";
 
 const STORAGE_KEY = 'BAZAAR_GEMINI_API_KEY';
 
-let API_KEY = process.env.GEMINI_API_KEY || process.env.API_KEY;
+let API_KEY = process.env.GEMINI_API_KEY || process.env.API_KEY || '';
 
 let ai: GoogleGenAI | null = null;
 
-if (API_KEY) {
-  ai = new GoogleGenAI({ apiKey: API_KEY });
+// Initialize AI client - check localStorage first, then env vars
+function initializeAI(): void {
+  // Priority: 1. Environment variable, 2. localStorage, 3. runtime update
+  const storedKey = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_KEY) : null;
+  const keyToUse = API_KEY || storedKey || '';
+  
+  if (keyToUse) {
+    ai = new GoogleGenAI({ apiKey: keyToUse });
+  } else {
+    ai = null;
+  }
 }
+
+// Initialize on module load
+initializeAI();
 
 /**
  * Update the API key at runtime (from localStorage or user input)
  * @param key The new API key to use
  */
 export function updateApiKey(key: string): void {
-  API_KEY = key || process.env.GEMINI_API_KEY || process.env.API_KEY;
+  API_KEY = key || '';
   if (API_KEY) {
     ai = new GoogleGenAI({ apiKey: API_KEY });
   } else {
@@ -33,6 +45,14 @@ export function updateApiKey(key: string): void {
  * @returns true if API key is available, false otherwise
  */
 export function isGeminiConfigured(): boolean {
+  // Re-check localStorage in case it was set externally
+  if (!ai) {
+    const storedKey = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_KEY) : null;
+    if (storedKey) {
+      API_KEY = storedKey;
+      ai = new GoogleGenAI({ apiKey: storedKey });
+    }
+  }
   return ai !== null;
 }
 
