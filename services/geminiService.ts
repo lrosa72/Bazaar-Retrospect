@@ -5,13 +5,36 @@
 import { GoogleGenAI } from "@google/genai";
 import type { GenerateContentResponse } from "@google/genai";
 
-const API_KEY = process.env.API_KEY;
+const STORAGE_KEY = 'BAZAAR_GEMINI_API_KEY';
 
-if (!API_KEY) {
-  throw new Error("API_KEY environment variable is not set");
+let API_KEY = process.env.GEMINI_API_KEY || process.env.API_KEY;
+
+let ai: GoogleGenAI | null = null;
+
+if (API_KEY) {
+  ai = new GoogleGenAI({ apiKey: API_KEY });
 }
 
-const ai = new GoogleGenAI({ apiKey: API_KEY });
+/**
+ * Update the API key at runtime (from localStorage or user input)
+ * @param key The new API key to use
+ */
+export function updateApiKey(key: string): void {
+  API_KEY = key || process.env.GEMINI_API_KEY || process.env.API_KEY;
+  if (API_KEY) {
+    ai = new GoogleGenAI({ apiKey: API_KEY });
+  } else {
+    ai = null;
+  }
+}
+
+/**
+ * Check if the Gemini API is configured with a valid API key.
+ * @returns true if API key is available, false otherwise
+ */
+export function isGeminiConfigured(): boolean {
+  return ai !== null;
+}
 
 
 // --- Helper Functions ---
@@ -62,6 +85,10 @@ function processGeminiResponse(response: GenerateContentResponse): string {
  * @returns The GenerateContentResponse from the API.
  */
 async function callGeminiWithRetry(imagePart: object, textPart: object): Promise<GenerateContentResponse> {
+    if (!ai) {
+        throw new Error("GEMINI_API_KEY is not configured. Please set it in your .env file.");
+    }
+
     const maxRetries = 3;
     const initialDelay = 1000;
 

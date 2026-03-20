@@ -4,13 +4,81 @@
 */
 import React, { useState, ChangeEvent, useRef, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { generateDecadeImage } from './services/geminiService';
+import { generateDecadeImage, isGeminiConfigured, updateApiKey } from './services/geminiService';
+import ApiKeyModal, { getStoredApiKey } from './components/ApiKeyModal';
 import MagazineCover from './components/MagazineCover';
 import { createAlbumPage } from './lib/albumUtils';
 import Footer from './components/Footer';
+import DecadeSelector from './components/DecadeSelector';
+import ViewToggle from './components/ViewToggle';
+import CustomPromptEditor from './components/CustomPromptEditor';
+import HistoryPanel from './components/HistoryPanel';
+import MagazineSelector from './components/MagazineSelector';
+import CreativeStyleSelector from './components/CreativeStyleSelector';
+import { saveToHistory, HistoryItem } from './lib/historyUtils';
+import { DEFAULT_DECADES } from './src/config/eras';
+import { creativeStyles } from './src/config/creativeStyles';
 import JSZip from 'jszip';
 
-const DECADES = ['1970s', '1980s', '1990s', '2000s', '2010s', '2020s', '2030s', '2040s', '2050s'];
+type ImageStatus = 'pending' | 'done' | 'error';
+interface GeneratedImage {
+    status: ImageStatus;
+    url?: string;
+    error?: string;
+    magazineId?: string;
+    creativeStyle?: string;
+}
+
+type ViewMode = 'scattered' | 'gallery';
+
+// Build dynamic prompt based on selections
+const buildPrompt = (
+    magazineId: string,
+    decade: string,
+    creativeStyle: string,
+    customPrompt?: string
+): string => {
+    // Get style-specific prompt additions
+    const styleConfig = creativeStyles.find(s => s.id === creativeStyle);
+    
+    // Get magazine name
+    const magazineNames: Record<string, string> = {
+        'bazaar': "Harper's Bazaar",
+        'vogue': 'Vogue',
+        'elle': 'Elle',
+        'gq': 'GQ',
+        'vanity-fair': 'Vanity Fair',
+        'lofficiel': "L'Officiel",
+        'interview': 'Interview',
+        'id-magazine': 'i-D',
+        'w-magazine': 'W Magazine'
+    };
+    const magazineName = magazineNames[magazineId] || "Harper's Bazaar";
+    
+    // Build creative style addition
+    let styleAddition = '';
+    if (styleConfig && styleConfig.id !== 'none') {
+        styleAddition = `
+        ${styleConfig.descriptionCn}风格: ${styleConfig.promptAddon.visual}.
+        光线风格: ${styleConfig.promptAddon.lighting}.
+        色调: ${styleConfig.promptAddon.colorGrade}.
+        氛围: ${styleConfig.promptAddon.mood}.`;
+    }
+    
+    // Use custom prompt if provided
+    if (customPrompt && customPrompt.trim()) {
+        return customPrompt
+            .replace(/\{decade\}/g, decade)
+            .replace(/\{magazine\}/g, magazineName)
+            + styleAddition;
+    }
+    
+    // Default enhanced prompt
+    return `Reimagine the EXACT SAME PERSON from this source photo as a high-fashion model on the cover of ${magazineName} magazine in the ${decade}.${styleAddition}
+CRITICAL: Maintain strict facial consistency. Preserve all unique facial features, bone structure, eye shape, and the specific identity of the person in the original image.
+Only transform the clothing, hairstyle, professional studio lighting, and the overall high-end editorial aesthetic to match the ${decade}.
+The output must be a photorealistic, professional studio portrait where the person is clearly recognizable as the individual in the source photo.`;
+};
 
 // Pre-defined positions for a scattered look on desktop
 const POSITIONS = [
@@ -34,15 +102,8 @@ const GHOST_POLAROIDS_CONFIG = [
   { initial: { x: "100%", y: "150%", rotate: 10 }, transition: { delay: 0.3 } },
 ];
 
-
-type ImageStatus = 'pending' | 'done' | 'error';
-interface GeneratedImage {
-    status: ImageStatus;
-    url?: string;
-    error?: string;
-}
-
 const primaryButtonClasses = "font-permanent-marker text-xl text-center text-black bg-yellow-400 py-3 px-8 rounded-sm transform transition-transform duration-200 hover:scale-105 hover:-rotate-2 hover:bg-yellow-300 shadow-[2px_2px_0px_2px_rgba(0,0,0,0.2)]";
+const primaryButtonClassesDisabled = "font-permanent-marker text-xl text-center text-black/50 bg-yellow-400/50 py-3 px-8 rounded-sm cursor-not-allowed";
 const secondaryButtonClasses = "font-permanent-marker text-xl text-center text-white bg-white/10 backdrop-blur-sm border-2 border-white/80 py-3 px-8 rounded-sm transform transition-transform duration-200 hover:scale-105 hover:rotate-2 hover:bg-white hover:text-black";
 
 const useMediaQuery = (query: string) => {
@@ -65,9 +126,36 @@ function App() {
     const [isLoading, setIsLoading] = useState<boolean>(false);
     const [isDownloading, setIsDownloading] = useState<boolean>(false);
     const [appState, setAppState] = useState<'idle' | 'image-uploaded' | 'generating' | 'results-shown'>('idle');
+    const [hasApiKey, setHasApiKey] = useState<boolean>(isGeminiConfigured());
+    const [selectedDecades, setSelectedDecades] = useState<string[]>([...DEFAULT_DECADES]);
+    const [selectedMagazines, setSelectedMagazines] = useState<string[]>(['bazaar']);
+    const [selectedCreativeStyle, setSelectedCreativeStyle] = useState<string>('none');
+    const [viewMode, setViewMode] = useState<ViewMode>('scattered');
+    const [promptTemplate, setPromptTemplate] = useState<string>('');
+    const [useCustomPrompt, setUseCustomPrompt] = useState<boolean>(false);
+    const [showAdvanced, setShowAdvanced] = useState<boolean>(false);
+    const [showApiKeyModal, setShowApiKeyModal] = useState<boolean>(false);
+    const [currentApiKey, setCurrentApiKey] = useState<string>(getStoredApiKey());
     const dragAreaRef = useRef<HTMLDivElement>(null);
     const isMobile = useMediaQuery('(max-width: 768px)');
 
+    // Check API key status on mount and show modal if needed
+    useEffect(() => {
+        const storedKey = getStoredApiKey();
+        const envKey = (process.env.GEMINI_API_KEY || process.env.API_KEY);
+        if (storedKey || envKey) {
+            setHasApiKey(true);
+        } else {
+            // First time user - show modal after a short delay
+            setTimeout(() => setShowApiKeyModal(true), 500);
+        }
+    }, []);
+
+    const handleApiKeySave = (key: string) => {
+        updateApiKey(key);
+        setCurrentApiKey(key);
+        setHasApiKey(!!key);
+    };
 
     const handleImageUpload = (e: ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files[0]) {
@@ -76,53 +164,80 @@ function App() {
             reader.onloadend = () => {
                 setUploadedImage(reader.result as string);
                 setAppState('image-uploaded');
-                setGeneratedImages({}); // Clear previous results
+                setGeneratedImages({});
             };
             reader.readAsDataURL(file);
         }
     };
 
     const handleGenerateClick = async () => {
-        if (!uploadedImage) return;
+        if (!uploadedImage || selectedDecades.length === 0) return;
 
         setIsLoading(true);
         setAppState('generating');
+
+        // Create generation tasks for each combination
+        const tasks: Array<{ key: string; decade: string; magazineId: string }> = [];
         
+        selectedDecades.forEach(decade => {
+            // If multiple magazines selected, create a task for each
+            if (selectedMagazines.length > 1) {
+                selectedMagazines.forEach(magazineId => {
+                    const key = `${decade}-${magazineId}`;
+                    tasks.push({ key, decade, magazineId });
+                });
+            } else {
+                const key = decade;
+                tasks.push({ key, decade, magazineId: selectedMagazines[0] });
+            }
+        });
+
         const initialImages: Record<string, GeneratedImage> = {};
-        DECADES.forEach(decade => {
-            initialImages[decade] = { status: 'pending' };
+        tasks.forEach(task => {
+            initialImages[task.key] = { 
+                status: 'pending',
+                magazineId: task.magazineId,
+                creativeStyle: selectedCreativeStyle
+            };
         });
         setGeneratedImages(initialImages);
 
-        const concurrencyLimit = 2; // Process two decades at a time
-        const decadesQueue = [...DECADES];
+        const concurrencyLimit = 2;
+        const tasksQueue = [...tasks];
 
-        const processDecade = async (decade: string) => {
+        const processTask = async (task: { key: string; decade: string; magazineId: string }) => {
             try {
-                const prompt = `Reimagine the EXACT SAME PERSON from this source photo as a high-fashion model on the cover of Harper's Bazaar magazine in the ${decade}. 
-                CRITICAL: Maintain strict facial consistency. Preserve all unique facial features, bone structure, eye shape, and the specific identity of the person in the original image. 
-                Only transform the clothing, hairstyle, professional studio lighting, and the overall high-end editorial aesthetic to match the ${decade}. 
-                The output must be a photorealistic, professional studio portrait where the person is clearly recognizable as the individual in the source photo.`;
+                const prompt = buildPrompt(
+                    task.magazineId,
+                    task.decade,
+                    useCustomPrompt ? 'none' : selectedCreativeStyle,
+                    useCustomPrompt ? promptTemplate : undefined
+                );
                 const resultUrl = await generateDecadeImage(uploadedImage, prompt);
                 setGeneratedImages(prev => ({
                     ...prev,
-                    [decade]: { status: 'done', url: resultUrl },
+                    [task.key]: { 
+                        status: 'done', 
+                        url: resultUrl,
+                        magazineId: task.magazineId,
+                        creativeStyle: selectedCreativeStyle
+                    },
                 }));
             } catch (err) {
                 const errorMessage = err instanceof Error ? err.message : "An unknown error occurred.";
                 setGeneratedImages(prev => ({
                     ...prev,
-                    [decade]: { status: 'error', error: errorMessage },
+                    [task.key]: { status: 'error', error: errorMessage },
                 }));
-                console.error(`Failed to generate image for ${decade}:`, err);
+                console.error(`Failed to generate image for ${task.key}:`, err);
             }
         };
 
         const workers = Array(concurrencyLimit).fill(null).map(async () => {
-            while (decadesQueue.length > 0) {
-                const decade = decadesQueue.shift();
-                if (decade) {
-                    await processDecade(decade);
+            while (tasksQueue.length > 0) {
+                const task = tasksQueue.shift();
+                if (task) {
+                    await processTask(task);
                 }
             }
         });
@@ -133,55 +248,70 @@ function App() {
         setAppState('results-shown');
     };
 
-    const handleRegenerateDecade = async (decade: string) => {
+    const handleRegenerateDecade = async (key: string) => {
         if (!uploadedImage) return;
 
-        // Prevent re-triggering if a generation is already in progress
-        if (generatedImages[decade]?.status === 'pending') {
-            return;
-        }
-        
-        console.log(`Regenerating image for ${decade}...`);
+        const image = generatedImages[key];
+        if (image?.status === 'pending') return;
 
-        // Set the specific decade to 'pending' to show the loading spinner
+        console.log(`Regenerating image for ${key}...`);
+
         setGeneratedImages(prev => ({
             ...prev,
-            [decade]: { status: 'pending' },
+            [key]: { ...prev[key], status: 'pending' },
         }));
 
-        // Call the generation service for the specific decade
         try {
-            const prompt = `Reimagine the EXACT SAME PERSON from this source photo as a high-fashion model on the cover of Harper's Bazaar magazine in the ${decade}. 
-            CRITICAL: Maintain strict facial consistency. Preserve all unique facial features, bone structure, eye shape, and the specific identity of the person in the original image. 
-            Only transform the clothing, hairstyle, professional studio lighting, and the overall high-end editorial aesthetic to match the ${decade}. 
-            The output must be a photorealistic, professional studio portrait where the person is clearly recognizable as the individual in the source photo.`;
+            // Parse the key (could be decade or decade-magazine)
+            const [decade, magazineId] = key.includes('-') 
+                ? [key.split('-')[0], key.split('-').slice(1).join('-')]
+                : [key, selectedMagazines[0]];
+            
+            const prompt = buildPrompt(
+                magazineId,
+                decade,
+                useCustomPrompt ? 'none' : selectedCreativeStyle,
+                useCustomPrompt ? promptTemplate : undefined
+            );
             const resultUrl = await generateDecadeImage(uploadedImage, prompt);
             setGeneratedImages(prev => ({
                 ...prev,
-                [decade]: { status: 'done', url: resultUrl },
+                [key]: { 
+                    status: 'done', 
+                    url: resultUrl,
+                    magazineId,
+                    creativeStyle: selectedCreativeStyle
+                },
             }));
         } catch (err) {
             const errorMessage = err instanceof Error ? err.message : "An unknown error occurred.";
             setGeneratedImages(prev => ({
                 ...prev,
-                [decade]: { status: 'error', error: errorMessage },
+                [key]: { ...prev[key], status: 'error', error: errorMessage },
             }));
-            console.error(`Failed to regenerate image for ${decade}:`, err);
+            console.error(`Failed to regenerate image for ${key}:`, err);
         }
     };
-    
+
     const handleReset = () => {
         setUploadedImage(null);
         setGeneratedImages({});
         setAppState('idle');
+        setSelectedDecades([...DEFAULT_DECADES]);
+        setSelectedMagazines(['bazaar']);
+        setSelectedCreativeStyle('none');
+        setPromptTemplate('');
+        setUseCustomPrompt(false);
     };
 
-    const handleDownloadIndividualImage = (decade: string) => {
-        const image = generatedImages[decade];
+    const handleDownloadIndividualImage = (key: string) => {
+        const image = generatedImages[key];
         if (image?.status === 'done' && image.url) {
             const link = document.createElement('a');
             link.href = image.url;
-            link.download = `past-forward-${decade}.jpg`;
+            const displayKey = key.includes('-') ? key.split('-')[0] : key;
+            const suffix = key.includes('-') ? `-${key.split('-').slice(1).join('-')}` : '';
+            link.download = `bazaar-${displayKey}${suffix}.jpg`;
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
@@ -193,11 +323,11 @@ function App() {
         try {
             const zip = new JSZip();
             let hasImages = false;
-            
-            (Object.entries(generatedImages) as [string, GeneratedImage][]).forEach(([decade, image]) => {
+
+            (Object.entries(generatedImages) as [string, GeneratedImage][]).forEach(([key, image]) => {
                 if (image.status === 'done' && image.url) {
                     const base64Data = image.url.split(',')[1];
-                    zip.file(`bazaar-${decade}.jpg`, base64Data, { base64: true });
+                    zip.file(`bazaar-${key}.jpg`, base64Data, { base64: true });
                     hasImages = true;
                 }
             });
@@ -226,15 +356,16 @@ function App() {
     const handleDownloadAlbum = async () => {
         setIsDownloading(true);
         try {
-            const imageData = (Object.entries(generatedImages) as [string, GeneratedImage][])
+            const imageData: Record<string, string> = {};
+            (Object.entries(generatedImages) as [string, GeneratedImage][])
                 .filter(([, image]) => image.status === 'done' && image.url)
-                .reduce((acc, [decade, image]) => {
-                    acc[decade] = image.url!;
-                    return acc;
-                }, {} as Record<string, string>);
+                .forEach(([key, image]) => {
+                    imageData[key] = image.url!;
+                });
 
-            if (Object.keys(imageData).length < DECADES.length) {
-                alert("Please wait for all images to finish generating before downloading the album.");
+            const keys = Object.keys(imageData);
+            if (keys.length === 0) {
+                alert("No images available to create an album yet.");
                 return;
             }
 
@@ -242,7 +373,7 @@ function App() {
 
             const link = document.createElement('a');
             link.href = albumDataUrl;
-            link.download = 'past-forward-album.jpg';
+            link.download = 'bazaar-collection-album.jpg';
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
@@ -255,14 +386,95 @@ function App() {
         }
     };
 
+    const handleSaveToHistory = () => {
+        if (!uploadedImage) return;
+
+        const doneImages: Record<string, string> = {};
+        (Object.entries(generatedImages) as [string, GeneratedImage][]).forEach(([key, image]) => {
+            if (image.status === 'done' && image.url) {
+                doneImages[key] = image.url;
+            }
+        });
+
+        if (Object.keys(doneImages).length === 0) {
+            alert("No completed images to save.");
+            return;
+        }
+
+        saveToHistory({
+            originalImage: uploadedImage,
+            generatedImages: doneImages,
+            selectedDecades: [...selectedDecades]
+        });
+
+        alert("Saved to history!");
+    };
+
+    const handleLoadHistory = (item: HistoryItem) => {
+        setUploadedImage(item.originalImage);
+        const newGeneratedImages: Record<string, GeneratedImage> = {};
+        Object.entries(item.generatedImages).forEach(([key, url]) => {
+            newGeneratedImages[key] = { status: 'done', url };
+        });
+        setGeneratedImages(newGeneratedImages);
+        // Try to parse decades from history keys
+        const decades = [...new Set(
+            Object.keys(item.generatedImages)
+                .map(k => k.includes('-') ? k.split('-')[0] : k)
+        )];
+        setSelectedDecades(decades.length > 0 ? decades : DEFAULT_DECADES);
+        setAppState('results-shown');
+    };
+
+    const handleResetPrompt = () => {
+        setPromptTemplate('');
+        setUseCustomPrompt(false);
+    };
+
+    // Get keys to display (sorted)
+    const displayKeys = Object.keys(generatedImages).sort((a, b) => {
+        const orderA = DEFAULT_DECADES.indexOf(a.split('-')[0]);
+        const orderB = DEFAULT_DECADES.indexOf(b.split('-')[0]);
+        return (orderA === -1 ? 999 : orderA) - (orderB === -1 ? 999 : orderB);
+    });
+
     return (
         <main className="bg-black text-neutral-200 min-h-screen w-full flex flex-col items-center justify-center p-4 pb-24 overflow-hidden relative">
             <div className="absolute top-0 left-0 w-full h-full bg-grid-white/[0.05]"></div>
-            
+
+            <HistoryPanel onLoadHistory={handleLoadHistory} />
+
+            {/* API Key Settings Button */}
+            <button
+                onClick={() => setShowApiKeyModal(true)}
+                className="absolute top-4 left-4 z-20 p-2 bg-white/10 hover:bg-white/20 backdrop-blur-sm border border-white/20 rounded-lg text-white/70 hover:text-white transition-all"
+                title="API Key 设置"
+            >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+            </button>
+
+            {/* API Key Status Badge */}
+            {!hasApiKey && (
+                <div className="absolute top-4 right-4 z-20">
+                    <button
+                        onClick={() => setShowApiKeyModal(true)}
+                        className="flex items-center gap-2 px-3 py-1.5 bg-yellow-500/20 hover:bg-yellow-500/30 border border-yellow-500/40 rounded-full text-yellow-400 text-xs font-medium transition-all animate-pulse"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                        </svg>
+                        配置 API Key
+                    </button>
+                </div>
+            )}
+
             <div className="z-10 flex flex-col items-center justify-center w-full h-full flex-1 min-h-0">
-                <div className="text-center mb-10">
-                    <h1 className="text-6xl md:text-8xl font-playfair font-black text-neutral-100 uppercase tracking-tighter">Bazaar</h1>
-                    <p className="font-playfair italic text-neutral-300 mt-2 text-xl tracking-wide">Your high-fashion journey through time.</p>
+                <div className="text-center mb-6">
+                    <h1 className="text-5xl md:text-7xl font-playfair font-black text-neutral-100 uppercase tracking-tighter">Bazaar</h1>
+                    <p className="font-playfair italic text-neutral-300 mt-1 text-lg tracking-wide">Your high-fashion journey through time.</p>
                 </div>
 
                 {appState === 'idle' && (
@@ -292,13 +504,14 @@ function App() {
                              className="flex flex-col items-center"
                         >
                             <label htmlFor="file-upload" className="cursor-pointer group transform hover:scale-105 transition-transform duration-300">
-                                 <MagazineCover 
+                                 <MagazineCover
                                      caption="The Icon"
                                      status="done"
+                                     magazineId={selectedMagazines[0]}
                                  />
                             </label>
                             <input id="file-upload" type="file" className="hidden" accept="image/png, image/jpeg, image/webp" onChange={handleImageUpload} />
-                            <p className="mt-8 font-playfair italic text-neutral-500 text-center max-w-xs text-lg">
+                            <p className="mt-6 font-playfair italic text-neutral-500 text-center max-w-xs text-base">
                                 Click the cover to upload your portrait and start your high-fashion journey.
                             </p>
                         </motion.div>
@@ -306,17 +519,80 @@ function App() {
                 )}
 
                 {appState === 'image-uploaded' && uploadedImage && (
-                    <div className="flex flex-col items-center gap-6">
-                         <MagazineCover 
-                            imageUrl={uploadedImage} 
-                            caption="The Original" 
+                    <div className="flex flex-col items-center gap-4 w-full max-w-3xl">
+                         <div className="w-full">
+                             <MagazineSelector
+                                 selectedMagazines={selectedMagazines}
+                                 onChange={setSelectedMagazines}
+                             />
+                         </div>
+                         <div className="w-full">
+                             <DecadeSelector
+                                 selectedDecades={selectedDecades}
+                                 onChange={setSelectedDecades}
+                             />
+                         </div>
+                         
+                         {/* Advanced options toggle */}
+                         <div className="w-full">
+                             <button
+                                 onClick={() => setShowAdvanced(!showAdvanced)}
+                                 className="w-full py-2 px-4 bg-white/5 border border-white/10 rounded-lg text-neutral-400 hover:text-white hover:bg-white/10 transition-all text-sm font-sans uppercase tracking-wider flex items-center justify-center gap-2"
+                             >
+                                 <span>{showAdvanced ? '▼' : '▶'}</span>
+                                 Advanced Options
+                             </button>
+                             
+                             {showAdvanced && (
+                                 <div className="mt-4 space-y-4 p-4 bg-white/5 border border-white/10 rounded-lg">
+                                     {/* Creative Style */}
+                                     <CreativeStyleSelector
+                                         selectedStyle={selectedCreativeStyle}
+                                         onChange={setSelectedCreativeStyle}
+                                     />
+                                     
+                                     <div className="border-t border-white/10 pt-4">
+                                         {/* Custom Prompt */}
+                                         <CustomPromptEditor
+                                             defaultPrompt=""
+                                             onChange={(prompt) => {
+                                                 setPromptTemplate(prompt);
+                                                 setUseCustomPrompt(true);
+                                             }}
+                                             onReset={handleResetPrompt}
+                                         />
+                                     </div>
+                                 </div>
+                             )}
+                         </div>
+                         
+                         <MagazineCover
+                            imageUrl={uploadedImage}
+                            caption="The Original"
                             status="done"
+                            magazineId={selectedMagazines[0]}
                          />
-                         <div className="flex items-center gap-4 mt-4">
+                         
+                         {/* Selection summary */}
+                         <div className="text-center text-sm text-neutral-500">
+                             Generating <span className="text-yellow-400 font-bold">{selectedDecades.length}</span> covers
+                             {selectedMagazines.length > 1 && (
+                                 <span> across <span className="text-cyan-400 font-bold">{selectedMagazines.length}</span> magazines</span>
+                             )}
+                             {selectedCreativeStyle !== 'none' && (
+                                 <span> in <span className="text-purple-400 font-bold">{creativeStyles.find(s => s.id === selectedCreativeStyle)?.nameCn}</span> style</span>
+                             )}
+                         </div>
+                         
+                         <div className="flex items-center gap-4 mt-2">
                             <button onClick={handleReset} className={secondaryButtonClasses}>
                                 Different Photo
                             </button>
-                            <button onClick={handleGenerateClick} className={primaryButtonClasses}>
+                            <button
+                                onClick={handleGenerateClick}
+                                disabled={selectedDecades.length === 0 || !hasApiKey}
+                                className={selectedDecades.length === 0 || !hasApiKey ? primaryButtonClassesDisabled : primaryButtonClasses}
+                            >
                                 Generate
                             </button>
                          </div>
@@ -325,68 +601,145 @@ function App() {
 
                 {(appState === 'generating' || appState === 'results-shown') && (
                      <>
+                        {/* View Toggle for desktop */}
+                        {!isMobile && appState === 'results-shown' && (
+                            <div className="mb-4 flex items-center gap-4">
+                                <ViewToggle viewMode={viewMode} onChange={setViewMode} />
+                                <button
+                                    onClick={handleSaveToHistory}
+                                    className="px-4 py-2 bg-white/10 hover:bg-white/20 text-white/80 hover:text-white text-sm font-sans uppercase tracking-wider rounded-lg transition-all"
+                                >
+                                    Save to History
+                                </button>
+                            </div>
+                        )}
+
+                        {/* Progress indicator when generating */}
+                        {appState === 'generating' && (
+                            <div className="mb-4 text-center">
+                                <p className="text-neutral-400 text-sm font-sans uppercase tracking-wider">
+                                    Generating {displayKeys.length} covers...
+                                </p>
+                                <div className="mt-2 flex items-center justify-center gap-2 flex-wrap">
+                                    {displayKeys.map((key) => {
+                                        const status = generatedImages[key]?.status;
+                                        return (
+                                            <div
+                                                key={key}
+                                                className={`w-2 h-2 rounded-full transition-all duration-300 ${
+                                                    status === 'done' ? 'bg-green-400' :
+                                                    status === 'error' ? 'bg-red-400' :
+                                                    'bg-yellow-400 animate-pulse'
+                                                }`}
+                                                title={`${key}: ${status}`}
+                                            />
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        )}
+
                         {isMobile ? (
-                            <div className="w-full max-w-sm flex-1 overflow-y-auto mt-4 space-y-8 p-4">
-                                {DECADES.map((decade) => (
-                                    <div key={decade} className="flex justify-center">
-                                         <MagazineCover
-                                            caption={decade}
-                                            status={generatedImages[decade]?.status || 'pending'}
-                                            imageUrl={generatedImages[decade]?.url}
-                                            error={generatedImages[decade]?.error}
-                                            onShake={handleRegenerateDecade}
-                                            onDownload={handleDownloadIndividualImage}
-                                            isMobile={isMobile}
-                                        />
-                                    </div>
-                                ))}
+                            <div className="w-full max-w-sm flex-1 overflow-y-auto mt-2 space-y-6 p-4">
+                                {displayKeys.map((key) => {
+                                    const [decade, ...rest] = key.includes('-') ? key.split('-') : [key];
+                                    const magazineId = rest.length > 0 ? rest.join('-') : generatedImages[key]?.magazineId;
+                                    return (
+                                        <div key={key} className="flex justify-center">
+                                             <MagazineCover
+                                                caption={decade}
+                                                status={generatedImages[key]?.status || 'pending'}
+                                                imageUrl={generatedImages[key]?.url}
+                                                error={generatedImages[key]?.error}
+                                                onShake={() => handleRegenerateDecade(key)}
+                                                onDownload={() => handleDownloadIndividualImage(key)}
+                                                isMobile={isMobile}
+                                                magazineId={magazineId}
+                                                creativeStyle={generatedImages[key]?.creativeStyle}
+                                            />
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        ) : viewMode === 'gallery' ? (
+                            <div className="w-full max-w-6xl flex-1 overflow-y-auto mt-2 p-4">
+                                <div className="grid grid-cols-3 gap-6 justify-items-center">
+                                    {displayKeys.map((key, index) => {
+                                        const [decade, ...rest] = key.includes('-') ? key.split('-') : [key];
+                                        const magazineId = rest.length > 0 ? rest.join('-') : generatedImages[key]?.magazineId;
+                                        return (
+                                            <motion.div
+                                                key={key}
+                                                initial={{ opacity: 0, scale: 0.8, y: 20 }}
+                                                animate={{ opacity: 1, scale: 1, y: 0 }}
+                                                transition={{ delay: index * 0.1 }}
+                                            >
+                                                <MagazineCover
+                                                    caption={decade}
+                                                    status={generatedImages[key]?.status || 'pending'}
+                                                    imageUrl={generatedImages[key]?.url}
+                                                    error={generatedImages[key]?.error}
+                                                    onShake={() => handleRegenerateDecade(key)}
+                                                    onDownload={() => handleDownloadIndividualImage(key)}
+                                                    isMobile={isMobile}
+                                                    magazineId={magazineId}
+                                                    creativeStyle={generatedImages[key]?.creativeStyle}
+                                                />
+                                            </motion.div>
+                                        );
+                                    })}
+                                </div>
                             </div>
                         ) : (
-                            <div ref={dragAreaRef} className="relative w-full max-w-5xl h-[600px] mt-4">
-                                {DECADES.map((decade, index) => {
-                                    const { top, left, rotate } = POSITIONS[index];
+                            <div ref={dragAreaRef} className="relative w-full max-w-5xl h-[600px] mt-2">
+                                {displayKeys.map((key, index) => {
+                                    const [decade, ...rest] = key.includes('-') ? key.split('-') : [key];
+                                    const magazineId = rest.length > 0 ? rest.join('-') : generatedImages[key]?.magazineId;
+                                    const originalIndex = DEFAULT_DECADES.indexOf(decade);
+                                    const { top, left, rotate } = POSITIONS[originalIndex === -1 ? index % POSITIONS.length : originalIndex];
                                     return (
                                         <motion.div
-                                            key={decade}
+                                            key={key}
                                             className="absolute cursor-grab active:cursor-grabbing"
                                             style={{ top, left }}
                                             initial={{ opacity: 0, scale: 0.5, y: 100, rotate: 0 }}
-                                            animate={{ 
-                                                opacity: 1, 
-                                                scale: 1, 
+                                            animate={{
+                                                opacity: 1,
+                                                scale: 1,
                                                 y: 0,
                                                 rotate: `${rotate}deg`,
                                             }}
                                             transition={{ type: 'spring', stiffness: 100, damping: 20, delay: index * 0.15 }}
                                         >
-                                            <MagazineCover 
-                                                dragConstraintsRef={dragAreaRef}
+                                            <MagazineCover
                                                 caption={decade}
-                                                status={generatedImages[decade]?.status || 'pending'}
-                                                imageUrl={generatedImages[decade]?.url}
-                                                error={generatedImages[decade]?.error}
-                                                onShake={handleRegenerateDecade}
-                                                onDownload={handleDownloadIndividualImage}
+                                                status={generatedImages[key]?.status || 'pending'}
+                                                imageUrl={generatedImages[key]?.url}
+                                                error={generatedImages[key]?.error}
+                                                onShake={() => handleRegenerateDecade(key)}
+                                                onDownload={() => handleDownloadIndividualImage(key)}
                                                 isMobile={isMobile}
+                                                magazineId={magazineId}
+                                                creativeStyle={generatedImages[key]?.creativeStyle}
                                             />
                                         </motion.div>
                                     );
                                 })}
                             </div>
                         )}
-                         <div className="h-20 mt-4 flex items-center justify-center">
+                         <div className="h-20 mt-2 flex items-center justify-center">
                             {appState === 'results-shown' && (
                                 <div className="flex flex-col sm:flex-row items-center gap-4">
-                                    <button 
-                                        onClick={handleDownloadAll} 
-                                        disabled={isDownloading} 
+                                    <button
+                                        onClick={handleDownloadAll}
+                                        disabled={isDownloading}
                                         className={`${primaryButtonClasses} disabled:opacity-50 disabled:cursor-not-allowed`}
                                     >
                                         {isDownloading ? 'Processing...' : 'Download All (ZIP)'}
                                     </button>
-                                    <button 
-                                        onClick={handleDownloadAlbum} 
-                                        disabled={isDownloading} 
+                                    <button
+                                        onClick={handleDownloadAlbum}
+                                        disabled={isDownloading}
                                         className={`${secondaryButtonClasses} disabled:opacity-50 disabled:cursor-not-allowed !text-black !bg-white hover:!bg-neutral-200`}
                                     >
                                         {isDownloading ? 'Creating...' : 'Download Album'}
@@ -401,6 +754,14 @@ function App() {
                 )}
             </div>
             <Footer />
+
+            {/* API Key Modal */}
+            <ApiKeyModal
+                isOpen={showApiKeyModal}
+                onClose={() => setShowApiKeyModal(false)}
+                onSave={handleApiKeySave}
+                currentApiKey={currentApiKey}
+            />
         </main>
     );
 }
