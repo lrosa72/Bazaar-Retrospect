@@ -128,6 +128,50 @@ const GHOST_POLAROIDS_CONFIG = [
   { initial: { x: "100%", y: "150%", rotate: 10 }, transition: { delay: 0.3 } },
 ];
 
+// Helper to parse key format: decade-magazine-style
+function parseKey(key: string): { decade: string; magazineId: string; creativeStyle: string } {
+    const parts = key.split('-');
+
+    // Try to find style part first
+    let styleIndex = -1;
+    for (let i = parts.length - 1; i >= 1; i--) {
+        const potentialStyle = parts.slice(i).join('-');
+        if (creativeStyles.some(s => s.id === potentialStyle)) {
+            styleIndex = i;
+            break;
+        }
+    }
+
+    if (styleIndex !== -1) {
+        return {
+            decade: parts[0],
+            magazineId: parts.slice(1, styleIndex).join('-') || 'bazaar',
+            creativeStyle: parts.slice(styleIndex).join('-')
+        };
+    }
+
+    // Fallback for old formats
+    if (parts.length === 1) {
+        return { decade: parts[0], magazineId: 'bazaar', creativeStyle: 'none' };
+    } else if (parts.length === 2) {
+        return { decade: parts[0], magazineId: parts[1], creativeStyle: 'none' };
+    }
+
+    // Last resort: assume last part is style
+    return {
+        decade: parts[0],
+        magazineId: parts.slice(1, parts.length - 1).join('-') || 'bazaar',
+        creativeStyle: parts[parts.length - 1]
+    };
+}
+
+// Build caption for display
+function buildCaption(decade: string, magazineId: string, creativeStyle: string): string {
+    const style = creativeStyles.find(s => s.id === creativeStyle);
+    const styleName = style && style.id !== 'none' ? ` · ${style.nameCn}` : '';
+    return `${decade}${styleName}`;
+}
+
 const primaryButtonClasses = "font-permanent-marker text-xl text-center text-black bg-yellow-400 py-3 px-8 rounded-sm transform transition-transform duration-200 hover:scale-105 hover:-rotate-2 hover:bg-yellow-300 shadow-[2px_2px_0px_2px_rgba(0,0,0,0.2)]";
 const primaryButtonClassesDisabled = "font-permanent-marker text-xl text-center text-black/50 bg-yellow-400/50 py-3 px-8 rounded-sm cursor-not-allowed";
 const secondaryButtonClasses = "font-permanent-marker text-xl text-center text-white bg-white/10 backdrop-blur-sm border-2 border-white/80 py-3 px-8 rounded-sm transform transition-transform duration-200 hover:scale-105 hover:rotate-2 hover:bg-white hover:text-black";
@@ -155,7 +199,7 @@ function App() {
     const [hasApiKey, setHasApiKey] = useState<boolean>(isGeminiConfigured());
     const [selectedDecades, setSelectedDecades] = useState<string[]>([...DEFAULT_DECADES]);
     const [selectedMagazines, setSelectedMagazines] = useState<string[]>(['bazaar']);
-    const [selectedCreativeStyle, setSelectedCreativeStyle] = useState<string>('none');
+    const [selectedCreativeStyles, setSelectedCreativeStyles] = useState<string[]>(['none']);
     const [viewMode, setViewMode] = useState<ViewMode>('scattered');
     const [promptTemplate, setPromptTemplate] = useState<string>('');
     const [useCustomPrompt, setUseCustomPrompt] = useState<boolean>(false);
@@ -203,28 +247,24 @@ function App() {
         setIsLoading(true);
         setAppState('generating');
 
-        // Create generation tasks for each combination
-        const tasks: Array<{ key: string; decade: string; magazineId: string }> = [];
-        
+        // Create generation tasks for each combination: decade × magazine × style
+        const tasks: Array<{ key: string; decade: string; magazineId: string; creativeStyle: string }> = [];
+
         selectedDecades.forEach(decade => {
-            // If multiple magazines selected, create a task for each
-            if (selectedMagazines.length > 1) {
-                selectedMagazines.forEach(magazineId => {
-                    const key = `${decade}-${magazineId}`;
-                    tasks.push({ key, decade, magazineId });
+            selectedMagazines.forEach(magazineId => {
+                selectedCreativeStyles.forEach(creativeStyle => {
+                    const key = `${decade}-${magazineId}-${creativeStyle}`;
+                    tasks.push({ key, decade, magazineId, creativeStyle });
                 });
-            } else {
-                const key = decade;
-                tasks.push({ key, decade, magazineId: selectedMagazines[0] });
-            }
+            });
         });
 
         const initialImages: Record<string, GeneratedImage> = {};
         tasks.forEach(task => {
-            initialImages[task.key] = { 
+            initialImages[task.key] = {
                 status: 'pending',
                 magazineId: task.magazineId,
-                creativeStyle: selectedCreativeStyle
+                creativeStyle: task.creativeStyle
             };
         });
         setGeneratedImages(initialImages);
@@ -232,22 +272,22 @@ function App() {
         const concurrencyLimit = 2;
         const tasksQueue = [...tasks];
 
-        const processTask = async (task: { key: string; decade: string; magazineId: string }) => {
+        const processTask = async (task: { key: string; decade: string; magazineId: string; creativeStyle: string }) => {
             try {
                 const prompt = buildPrompt(
                     task.magazineId,
                     task.decade,
-                    useCustomPrompt ? 'none' : selectedCreativeStyle,
+                    useCustomPrompt ? 'none' : task.creativeStyle,
                     useCustomPrompt ? promptTemplate : undefined
                 );
                 const resultUrl = await generateDecadeImage(uploadedImage, prompt);
                 setGeneratedImages(prev => ({
                     ...prev,
-                    [task.key]: { 
-                        status: 'done', 
+                    [task.key]: {
+                        status: 'done',
                         url: resultUrl,
                         magazineId: task.magazineId,
-                        creativeStyle: selectedCreativeStyle
+                        creativeStyle: task.creativeStyle
                     },
                 }));
             } catch (err) {
@@ -289,25 +329,51 @@ function App() {
         }));
 
         try {
-            // Parse the key (could be decade or decade-magazine)
-            const [decade, magazineId] = key.includes('-') 
-                ? [key.split('-')[0], key.split('-').slice(1).join('-')]
-                : [key, selectedMagazines[0]];
-            
+            // Parse the key (format: decade-magazine-style)
+            const parts = key.split('-');
+            let decade = parts[0];
+            let magazineId = selectedMagazines[0];
+            let creativeStyle = selectedCreativeStyles[0];
+
+            if (parts.length >= 3) {
+                // New format: decade-magazine-style (magazine could have hyphens)
+                // Find where style starts
+                const styleIndex = parts.findIndex((_, i) => {
+                    if (i < 1) return false;
+                    const potentialStyle = parts.slice(i).join('-');
+                    return creativeStyles.some(s => s.id === potentialStyle);
+                });
+
+                if (styleIndex !== -1) {
+                    magazineId = parts.slice(1, styleIndex).join('-');
+                    creativeStyle = parts.slice(styleIndex).join('-');
+                } else {
+                    // Fallback: assume last part is style
+                    creativeStyle = parts[parts.length - 1];
+                    magazineId = parts.slice(1, parts.length - 1).join('-');
+                }
+            } else if (parts.length === 2) {
+                // Old format: decade-magazine
+                magazineId = parts[1];
+            }
+            // Use stored values if available
+            if (image?.magazineId) magazineId = image.magazineId;
+            if (image?.creativeStyle) creativeStyle = image.creativeStyle;
+
             const prompt = buildPrompt(
                 magazineId,
                 decade,
-                useCustomPrompt ? 'none' : selectedCreativeStyle,
+                useCustomPrompt ? 'none' : creativeStyle,
                 useCustomPrompt ? promptTemplate : undefined
             );
             const resultUrl = await generateDecadeImage(uploadedImage, prompt);
             setGeneratedImages(prev => ({
                 ...prev,
-                [key]: { 
-                    status: 'done', 
+                [key]: {
+                    status: 'done',
                     url: resultUrl,
                     magazineId,
-                    creativeStyle: selectedCreativeStyle
+                    creativeStyle
                 },
             }));
         } catch (err) {
@@ -326,7 +392,7 @@ function App() {
         setAppState('idle');
         setSelectedDecades([...DEFAULT_DECADES]);
         setSelectedMagazines(['bazaar']);
-        setSelectedCreativeStyle('none');
+        setSelectedCreativeStyles(['none']);
         setPromptTemplate('');
         setUseCustomPrompt(false);
     };
@@ -336,9 +402,7 @@ function App() {
         if (image?.status === 'done' && image.url) {
             const link = document.createElement('a');
             link.href = image.url;
-            const displayKey = key.includes('-') ? key.split('-')[0] : key;
-            const suffix = key.includes('-') ? `-${key.split('-').slice(1).join('-')}` : '';
-            link.download = `bazaar-${displayKey}${suffix}.jpg`;
+            link.download = `bazaar-${key}.jpg`;
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
@@ -441,7 +505,13 @@ function App() {
         setUploadedImage(item.originalImage);
         const newGeneratedImages: Record<string, GeneratedImage> = {};
         Object.entries(item.generatedImages).forEach(([key, url]) => {
-            newGeneratedImages[key] = { status: 'done', url };
+            const parsed = parseKey(key);
+            newGeneratedImages[key] = {
+                status: 'done',
+                url,
+                magazineId: parsed.magazineId,
+                creativeStyle: parsed.creativeStyle
+            };
         });
         setGeneratedImages(newGeneratedImages);
         // Try to parse decades from history keys
@@ -590,8 +660,8 @@ function App() {
 
                                     {/* Creative Style */}
                                     <CreativeStyleSelector
-                                        selectedStyle={selectedCreativeStyle}
-                                        onChange={setSelectedCreativeStyle}
+                                        selectedStyles={selectedCreativeStyles}
+                                        onChange={setSelectedCreativeStyles}
                                     />
                                     
                                     <div className="border-t border-white/10 pt-4">
@@ -618,12 +688,10 @@ function App() {
                          
                          {/* Selection summary */}
                          <div className="text-center text-sm text-neutral-500">
-                             Generating <span className="text-yellow-400 font-bold">{selectedDecades.length}</span> covers
-                             {selectedMagazines.length > 1 && (
-                                 <span> across <span className="text-cyan-400 font-bold">{selectedMagazines.length}</span> magazines</span>
-                             )}
-                             {selectedCreativeStyle !== 'none' && (
-                                 <span> in <span className="text-purple-400 font-bold">{creativeStyles.find(s => s.id === selectedCreativeStyle)?.nameCn}</span> style</span>
+                             Generating <span className="text-yellow-400 font-bold">{selectedDecades.length * selectedMagazines.length * selectedCreativeStyles.length}</span> covers
+                             <span> across <span className="text-cyan-400 font-bold">{selectedMagazines.length}</span> magazine{selectedMagazines.length > 1 ? 's' : ''}</span>
+                             {selectedCreativeStyles.length > 0 && !(selectedCreativeStyles.length === 1 && selectedCreativeStyles[0] === 'none') && (
+                                 <span> in <span className="text-purple-400 font-bold">{selectedCreativeStyles.length}</span> style{selectedCreativeStyles.length > 1 ? 's' : ''}</span>
                              )}
                          </div>
                          
@@ -685,12 +753,12 @@ function App() {
                         {isMobile ? (
                             <div className="w-full max-w-sm flex-1 overflow-y-auto mt-2 space-y-6 p-4">
                                 {displayKeys.map((key) => {
-                                    const [decade, ...rest] = key.includes('-') ? key.split('-') : [key];
-                                    const magazineId = rest.length > 0 ? rest.join('-') : generatedImages[key]?.magazineId;
+                                    const parsed = parseKey(key);
+                                    const magazineId = generatedImages[key]?.magazineId || parsed.magazineId;
                                     return (
                                         <div key={key} className="flex justify-center">
                                              <MagazineCover
-                                                caption={decade}
+                                                caption={buildCaption(parsed.decade, magazineId, parsed.creativeStyle)}
                                                 status={generatedImages[key]?.status || 'pending'}
                                                 imageUrl={generatedImages[key]?.url}
                                                 error={generatedImages[key]?.error}
@@ -708,8 +776,8 @@ function App() {
                             <div className="w-full max-w-6xl flex-1 overflow-y-auto mt-2 p-4">
                                 <div className="grid grid-cols-3 gap-6 justify-items-center">
                                     {displayKeys.map((key, index) => {
-                                        const [decade, ...rest] = key.includes('-') ? key.split('-') : [key];
-                                        const magazineId = rest.length > 0 ? rest.join('-') : generatedImages[key]?.magazineId;
+                                        const parsed = parseKey(key);
+                                        const magazineId = generatedImages[key]?.magazineId || parsed.magazineId;
                                         return (
                                             <motion.div
                                                 key={key}
@@ -718,7 +786,7 @@ function App() {
                                                 transition={{ delay: index * 0.1 }}
                                             >
                                                 <MagazineCover
-                                                    caption={decade}
+                                                    caption={buildCaption(parsed.decade, magazineId, parsed.creativeStyle)}
                                                     status={generatedImages[key]?.status || 'pending'}
                                                     imageUrl={generatedImages[key]?.url}
                                                     error={generatedImages[key]?.error}
@@ -736,9 +804,9 @@ function App() {
                         ) : (
                             <div ref={dragAreaRef} className="relative w-full max-w-5xl h-[600px] mt-2">
                                 {displayKeys.map((key, index) => {
-                                    const [decade, ...rest] = key.includes('-') ? key.split('-') : [key];
-                                    const magazineId = rest.length > 0 ? rest.join('-') : generatedImages[key]?.magazineId;
-                                    const originalIndex = DEFAULT_DECADES.indexOf(decade);
+                                    const parsed = parseKey(key);
+                                    const magazineId = generatedImages[key]?.magazineId || parsed.magazineId;
+                                    const originalIndex = DEFAULT_DECADES.indexOf(parsed.decade);
                                     const { top, left, rotate } = POSITIONS[originalIndex === -1 ? index % POSITIONS.length : originalIndex];
                                     return (
                                         <motion.div
@@ -755,7 +823,7 @@ function App() {
                                             transition={{ type: 'spring', stiffness: 100, damping: 20, delay: index * 0.15 }}
                                         >
                                             <MagazineCover
-                                                caption={decade}
+                                                caption={buildCaption(parsed.decade, magazineId, parsed.creativeStyle)}
                                                 status={generatedImages[key]?.status || 'pending'}
                                                 imageUrl={generatedImages[key]?.url}
                                                 error={generatedImages[key]?.error}

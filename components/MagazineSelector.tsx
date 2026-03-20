@@ -11,7 +11,7 @@ interface MagazineSelectorProps {
 const MagazineSelector: React.FC<MagazineSelectorProps> = ({
     selectedMagazines,
     onChange,
-    maxSelection = 3
+    maxSelection = 9
 }) => {
     const toggleMagazine = (magazineId: string) => {
         if (selectedMagazines.includes(magazineId)) {
@@ -82,7 +82,7 @@ const MagazineSelector: React.FC<MagazineSelectorProps> = ({
                             </div>
                             {isSelected && (
                                 <div className="absolute -top-1 -right-1 w-5 h-5 bg-green-500 rounded-full flex items-center justify-center">
-                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-3 h-3 text-white" viewBox="0 0 20 20" fill="currentColor">
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 text-white" viewBox="0 0 20 20" fill="currentColor">
                                         <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
                                     </svg>
                                 </div>
@@ -95,8 +95,6 @@ const MagazineSelector: React.FC<MagazineSelectorProps> = ({
             <p className="text-neutral-500 text-xs mt-3 text-center">
                 {selectedMagazines.length === 0
                     ? "Select at least one magazine"
-                    : selectedMagazines.length >= maxSelection
-                    ? `Maximum ${maxSelection} magazines selected`
                     : `${selectedMagazines.length} magazine${selectedMagazines.length > 1 ? 's' : ''} selected`}
             </p>
         </div>
