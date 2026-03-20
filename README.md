@@ -8,6 +8,20 @@
 
 ---
 
+## Demo Showcase
+
+Upload a photo, select decades, and generate fashion magazine covers from the 1920s to 2000s:
+
+| 1920s | 1930s | 1940s | 1950s | 1960s |
+|:-----:|:-----:|:-----:|:-----:|:-----:|
+| <img src="public/demo/bazaar-1920s.jpg" width="150"> | <img src="public/demo/bazaar-1930s.jpg" width="150"> | <img src="public/demo/bazaar-1940s.jpg" width="150"> | <img src="public/demo/bazaar-1950s.jpg" width="150"> | <img src="public/demo/bazaar-1960s.jpg" width="150"> |
+
+| 1970s | 1980s | 1990s | 2000s |
+|:-----:|:-----:|:-----:|:-----:|
+| <img src="public/demo/bazaar-1970s.jpg" width="150"> | <img src="public/demo/bazaar-1980s.jpg" width="150"> | <img src="public/demo/bazaar-1990s.jpg" width="150"> | <img src="public/demo/bazaar-2000s.jpg" width="150"> |
+
+---
+
 ## Project Introduction
 
 Bazaar Retrospect is an AI-powered fashion magazine cover generator that transforms your photos into magazine covers from different eras and styles using Gemini AI.
