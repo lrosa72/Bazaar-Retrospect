@@ -6,12 +6,12 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 const REMIX_IDEAS = [
-    "to try different hairstyles.",
-    "to turn your pet into a cartoon character.",
-    "to create a fantasy version of yourself.",
-    "to design a superhero based on your photo.",
-    "to place yourself in famous historical events.",
-    "to generate a custom video game avatar.",
+    "try different hairstyles",
+    "turn your pet into a cartoon",
+    "create a fantasy version",
+    "design a superhero avatar",
+    "place yourself in history",
+    "generate a game character",
 ];
 
 const Footer = () => {
@@ -20,44 +20,41 @@ const Footer = () => {
     useEffect(() => {
         const intervalId = setInterval(() => {
             setIndex(prevIndex => (prevIndex + 1) % REMIX_IDEAS.length);
-        }, 3500); // Change text every 3.5 seconds
+        }, 4000);
 
         return () => clearInterval(intervalId);
     }, []);
 
     return (
-        <footer className="fixed bottom-0 left-0 right-0 bg-black/50 backdrop-blur-sm p-3 z-50 text-neutral-300 text-xs sm:text-sm border-t border-white/10">
+        <footer className="fixed bottom-0 left-0 right-0 bg-black/50 backdrop-blur-sm p-2 z-50 text-neutral-300 text-xs sm:text-sm border-t border-white/10">
             <div className="max-w-screen-xl mx-auto flex justify-between items-center gap-4 px-4">
-                {/* Left Side */}
-                <div className="hidden md:flex items-center gap-4 text-neutral-500 whitespace-nowrap">
-                    <p>Powered by Gemini 2.5 Flash Image Preview</p>
-                    <span className="text-neutral-700" aria-hidden="true">|</span>
-                    <p>
-                        Created by{' '}
-                        <a
-                            href="https://x.com/ammaar"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-neutral-400 hover:text-yellow-400 transition-colors duration-200"
-                        >
-                            @ammaar
-                        </a>
-                    </p>
+                {/* Left Side - Simple credit */}
+                <div className="flex items-center gap-3 text-neutral-500 whitespace-nowrap">
+                    <span>Powered by Gemini 2.5 Flash</span>
+                    <span className="text-neutral-700 hidden sm:inline">|</span>
+                    <a
+                        href="https://x.com/ammaar"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-neutral-400 hover:text-yellow-400 transition-colors hidden sm:inline"
+                    >
+                        @ammaar
+                    </a>
                 </div>
 
-                {/* Right Side */}
-                <div className="flex-grow flex justify-end items-center gap-4 sm:gap-6">
-                    <div className="hidden lg:flex items-center gap-2 text-neutral-400 text-right min-w-0">
-                        <span className="flex-shrink-0">Remix this app...</span>
-                        <div className="relative w-64 h-5">
+                {/* Right Side - Remix hint + buttons */}
+                <div className="flex items-center gap-3 sm:gap-4">
+                    <div className="hidden md:flex items-center gap-1.5 text-neutral-400">
+                        <span className="text-neutral-600">Remix:</span>
+                        <div className="relative w-36 h-4 overflow-hidden">
                             <AnimatePresence mode="wait">
                                 <motion.span
                                     key={index}
-                                    initial={{ opacity: 0, y: 10 }}
+                                    initial={{ opacity: 0, y: 8 }}
                                     animate={{ opacity: 1, y: 0 }}
-                                    exit={{ opacity: 0, y: -10 }}
-                                    transition={{ duration: 0.4, ease: "easeInOut" }}
-                                    className="absolute inset-0 font-medium text-neutral-200 whitespace-nowrap text-left"
+                                    exit={{ opacity: 0, y: -8 }}
+                                    transition={{ duration: 0.3 }}
+                                    className="absolute inset-0 text-neutral-200 text-xs"
                                 >
                                     {REMIX_IDEAS[index]}
                                 </motion.span>
@@ -65,24 +62,22 @@ const Footer = () => {
                         </div>
                     </div>
 
-                    <div className="flex items-center gap-4 sm:gap-6">
-                        <a
-                            href="https://aistudio.google.com/apps"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="font-permanent-marker text-sm sm:text-base text-center text-black bg-yellow-400 py-2 px-4 rounded-sm transform transition-transform duration-200 hover:scale-105 hover:-rotate-2 hover:bg-yellow-300 shadow-[1px_1px_0px_1px_rgba(0,0,0,0.2)] whitespace-nowrap"
-                        >
-                            Apps on AI Studio
-                        </a>
-                        <a
-                            href="https://gemini.google.com/"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="font-permanent-marker text-sm sm:text-base text-center text-white bg-white/10 backdrop-blur-sm border border-white/50 py-2 px-4 rounded-sm transform transition-transform duration-200 hover:scale-105 hover:rotate-2 hover:bg-white hover:text-black whitespace-nowrap"
-                        >
-                            Chat with Gemini
-                        </a>
-                    </div>
+                    <a
+                        href="https://aistudio.google.com/apps"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="font-permanent-marker text-xs sm:text-sm text-center text-black bg-yellow-400 py-1.5 px-3 rounded-sm hover:scale-105 hover:bg-yellow-300 transition-all whitespace-nowrap"
+                    >
+                        AI Studio
+                    </a>
+                    <a
+                        href="https://gemini.google.com/"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="font-permanent-marker text-xs sm:text-sm text-center text-white bg-white/10 border border-white/30 py-1.5 px-3 rounded-sm hover:scale-105 hover:bg-white hover:text-black transition-all whitespace-nowrap hidden sm:inline"
+                    >
+                        Gemini
+                    </a>
                 </div>
             </div>
         </footer>
