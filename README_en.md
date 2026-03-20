@@ -29,6 +29,7 @@ Bazaar Retrospect is an AI-powered fashion magazine cover generator that transfo
 **Key Features:**
 
 ### Core Features
+- ✅ **Enhanced Face Consistency** - Toggle to prioritize facial feature preservation for better likeness
 - ✅ **Multi-Magazine Support** - 9 magazine styles (Harper's Bazaar, Vogue, Elle, GQ, Vanity Fair, L'Officiel, Interview, i-D, W Magazine)
 - ✅ **Flexible Era Selection** - Choose from 1920s to 2100s
 - ✅ **Random Mode** - Let fate decide your fashion journey

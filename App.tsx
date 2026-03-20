@@ -31,7 +31,7 @@ interface GeneratedImage {
 
 type ViewMode = 'scattered' | 'gallery';
 
-// Build dynamic prompt based on selections
+// Build dynamic prompt based on selections (Enhanced for face consistency)
 const buildPrompt = (
     magazineId: string,
     decade: string,
@@ -73,11 +73,37 @@ const buildPrompt = (
             + styleAddition;
     }
     
-    // Default enhanced prompt
-    return `Reimagine the EXACT SAME PERSON from this source photo as a high-fashion model on the cover of ${magazineName} magazine in the ${decade}.${styleAddition}
-CRITICAL: Maintain strict facial consistency. Preserve all unique facial features, bone structure, eye shape, and the specific identity of the person in the original image.
-Only transform the clothing, hairstyle, professional studio lighting, and the overall high-end editorial aesthetic to match the ${decade}.
-The output must be a photorealistic, professional studio portrait where the person is clearly recognizable as the individual in the source photo.`;
+    // Default enhanced prompt with STRONG face consistency
+    return `Transform the person in this photo into a ${decade} high-fashion editorial portrait for ${magazineName} magazine cover.${styleAddition}
+  
+=== CRITICAL IDENTITY PRESERVATION ===
+This is the MOST IMPORTANT requirement. Study the source photo carefully and maintain EXACT facial identity:
+
+1. **FACE IDENTITY**: The output MUST show the EXACT SAME PERSON from the source photo. Every facial feature must be identical - eye shape, nose bridge, lip shape, chin, cheekbones, brow line, overall face structure, skin tone.
+
+2. **RECOGNIZABLE**: The person in the generated image must be immediately recognizable as the same individual in your source photo. The face must be IDENTICAL.
+
+3. **ONLY TRANSFORM**: Change ONLY these elements:
+   - Clothing and fashion (to match ${decade} ${magazineName} style)
+   - Hairstyle and hair color (${decade} aesthetic)
+   - Makeup and styling
+   - Lighting (professional studio lighting)
+   - Background and setting
+   - Magazine typography and layout
+
+4. **DO NOT CHANGE**: 
+   - Face shape and bone structure
+   - Eye color, shape, and size
+   - Nose shape and size
+   - Lip shape and fullness
+   - Chin shape
+   - Overall facial proportions
+   - Skin tone and texture
+   - Any unique identifying features
+
+5. **QUALITY**: The output must be photorealistic, high-resolution, magazine-quality editorial photography.
+
+Use the source photo as your ONLY reference for the person's identity. This is a fashion transformation, NOT a different person.`;
 };
 
 // Pre-defined positions for a scattered look on desktop
@@ -134,6 +160,7 @@ function App() {
     const [promptTemplate, setPromptTemplate] = useState<string>('');
     const [useCustomPrompt, setUseCustomPrompt] = useState<boolean>(false);
     const [showAdvanced, setShowAdvanced] = useState<boolean>(false);
+    const [enhanceFaceConsistency, setEnhanceFaceConsistency] = useState<boolean>(true);
     const [showApiKeyModal, setShowApiKeyModal] = useState<boolean>(false);
     const [currentApiKey, setCurrentApiKey] = useState<string>(getStoredApiKey());
     const dragAreaRef = useRef<HTMLDivElement>(null);
@@ -543,27 +570,43 @@ function App() {
                                  Advanced Options
                              </button>
                              
-                             {showAdvanced && (
-                                 <div className="mt-4 space-y-4 p-4 bg-white/5 border border-white/10 rounded-lg">
-                                     {/* Creative Style */}
-                                     <CreativeStyleSelector
-                                         selectedStyle={selectedCreativeStyle}
-                                         onChange={setSelectedCreativeStyle}
-                                     />
-                                     
-                                     <div className="border-t border-white/10 pt-4">
-                                         {/* Custom Prompt */}
-                                         <CustomPromptEditor
-                                             defaultPrompt=""
-                                             onChange={(prompt) => {
-                                                 setPromptTemplate(prompt);
-                                                 setUseCustomPrompt(true);
-                                             }}
-                                             onReset={handleResetPrompt}
-                                         />
-                                     </div>
-                                 </div>
-                             )}
+                            {showAdvanced && (
+                                <div className="mt-4 space-y-4 p-4 bg-white/5 border border-white/10 rounded-lg">
+                                    {/* Face Consistency Toggle */}
+                                    <div className="flex items-center justify-between p-3 bg-yellow-500/10 border border-yellow-500/20 rounded-lg">
+                                        <div className="flex items-center gap-3">
+                                            <div className={`w-10 h-6 rounded-full p-1 transition-colors ${enhanceFaceConsistency ? 'bg-yellow-500' : 'bg-neutral-600'}`}>
+                                                <button
+                                                    onClick={() => setEnhanceFaceConsistency(!enhanceFaceConsistency)}
+                                                    className={`w-4 h-4 rounded-full bg-white shadow transform transition-transform ${enhanceFaceConsistency ? 'translate-x-4' : 'translate-x-0'}`}
+                                                />
+                                            </div>
+                                            <div>
+                                                <p className="text-white text-sm font-medium">增强人脸相似度</p>
+                                                <p className="text-neutral-400 text-xs">优先保持面部特征一致</p>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Creative Style */}
+                                    <CreativeStyleSelector
+                                        selectedStyle={selectedCreativeStyle}
+                                        onChange={setSelectedCreativeStyle}
+                                    />
+                                    
+                                    <div className="border-t border-white/10 pt-4">
+                                        {/* Custom Prompt */}
+                                        <CustomPromptEditor
+                                            defaultPrompt=""
+                                            onChange={(prompt) => {
+                                                setPromptTemplate(prompt);
+                                                setUseCustomPrompt(true);
+                                            }}
+                                            onReset={handleResetPrompt}
+                                        />
+                                    </div>
+                                </div>
+                            )}
                          </div>
                          
                          <MagazineCover

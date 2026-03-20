@@ -28,6 +28,7 @@ Bazaar Retrospect 是一款 AI 驱动的时尚杂志封面生成器，使用 Gem
 
 ### 核心功能
 
+- ✅ **增强人脸相似度** - 开启后优先保持面部特征一致，确保生成的图片更像本人
 - ✅ **多杂志支持** - 9种杂志风格（Harper's Bazaar、Vogue、Elle、GQ、Vanity Fair、L'Officiel、Interview、i-D、W Magazine）
 - ✅ **灵活年代选择** - 支持从 1920 年代到 2100 年代
 - ✅ **随机模式** - 让命运来决定你的时尚之旅
