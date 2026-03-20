@@ -187,7 +187,7 @@ Key characteristics:
 - Eyes: ${faceFeatures.eyes.shape} shaped, ${faceFeatures.eyes.size} size
 - Nose: ${faceFeatures.nose.bridge} bridge, ${faceFeatures.nose.tip} tip
 - Lips: ${faceFeatures.lips}
-- Chin: ${features.chin}
+- Chin: ${faceFeatures.chin}
 
 You MUST maintain 100% facial consistency. The person in the output image must be IDENTICAL to the source photo - same face, same features, same identity. Only change clothing, hairstyle, makeup, lighting, and background to match the specified era and magazine style.`;
 

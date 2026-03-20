@@ -10,7 +10,7 @@
 import React, { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { eras, getEraById, EraConfig } from '../config/eras';
-import { eraPresets, EraPreset, getPresetById } from '../config/presets';
+import { presets, PresetConfig, getPresetById } from '../config/presets';
 
 type SelectionMode = 'preset' | 'random' | 'custom' | 'chaos';
 
@@ -39,8 +39,8 @@ const EraPicker: React.FC<EraPickerProps> = ({
       generateRandomEras();
     } else {
       const preset = getPresetById(presetId);
-      if (preset && preset.eras.length > 0) {
-        onChange(preset.eras.slice(0, maxSelection));
+      if (preset && preset.decades.length > 0) {
+        onChange(preset.decades.slice(0, maxSelection));
       }
     }
   };
@@ -82,7 +82,7 @@ const EraPicker: React.FC<EraPickerProps> = ({
   const presetPreview = useMemo(() => {
     if (mode === 'preset' && selectedPreset && selectedPreset !== 'chaos-mode') {
       const preset = getPresetById(selectedPreset);
-      return preset ? `${preset.eras.length} 个年代` : '';
+      return preset ? `${preset.decades.length} 个年代` : '';
     }
     if (mode === 'random') {
       return `${randomCount} 个随机年代`;
@@ -136,7 +136,7 @@ const EraPicker: React.FC<EraPickerProps> = ({
             className="space-y-4"
           >
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
-              {eraPresets.map((preset) => (
+              {presets.map((preset) => (
                 <button
                   key={preset.id}
                   onClick={() => handlePresetSelect(preset.id)}
